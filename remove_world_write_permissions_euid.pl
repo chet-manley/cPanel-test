@@ -29,8 +29,8 @@ sub change_euid {
 
   # check for failure
   if ( $! ) {
-    $utils->verbose("Set EUID failed: $!", 1)
-    return 0
+    $utils->verbose("Set EUID failed: $!", 1);
+    return 0;
   }
 
   return 1;
