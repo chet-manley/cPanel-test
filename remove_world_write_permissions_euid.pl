@@ -19,6 +19,23 @@ my ($exit_code, $options, $utils) = ();
 # run the program
 run();
 
+# required: $euid (unsigned integer)
+#  returns: success as (boolean)
+sub change_euid {
+  my $euid = shift;
+
+  # set new EUID
+  $> = $euid;
+
+  # check for failure
+  if ( $! ) {
+    $utils->verbose("Set EUID failed: $!", 1)
+    return 0
+  }
+
+  return 1;
+}
+
 # requires: $results (hash ref)
 #  returns: success as (boolean)
 sub parse_results {
@@ -65,6 +82,7 @@ sub setup {
   # parse command line options with bundling options
   $go = Getopt::Long::Parser->new(config => ['bundling']);
   $go->getoptions($options,
+    'euid|e=i',
     'verbose|v',
     'help|?'
   ) or pod2usage "Try '$0 --help' for more information.";
@@ -79,6 +97,15 @@ sub setup {
 
   # no arguments passed, display help and exit
   if ( ! @ARGV ) { pod2usage 'At least one directory is required.'; }
+
+  # setuid requested
+  if ( defined $options->{'euid'} ) {
+    if ( change_euid($options->{'euid'}) ) {
+      $utils->verbose( sprintf('Running with requested EUID: %d', $>), 1 );
+    } else {
+      warn "Could not change EUID. Try running with elevated privileges (got sudo?).\n";
+    }
+  }
 
   # test our directories
   foreach ( @ARGV ) {
@@ -137,10 +164,11 @@ __END__
 
 =head1 SYNOPSIS
 
-remove_world_write_permissions.pl <directory> [<directory>] [-v]
+remove_world_write_permissions_euid.pl <directory> [<directory>] [-e] [-v]
 
 =head1 OPTIONS
 
+  -e, --euid            Set Effective UID
   -v, --verbose         Display verbose output
   -?, --help            This help message
 

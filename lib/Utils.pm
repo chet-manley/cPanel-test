@@ -34,11 +34,12 @@ $File::Find::dont_use_nlink = 1;
     #  'debug' => 0,
     #  'verbose' => 0
     #};
+    # perl 5.8 without logical defined-or
+    if ( ! $opt ) { $opt = {'verbose' => 0}; }
 
     # create class object
     my $self = {
-      # perl 5.8 without logical defined-or
-      'options' => $opt || { 'verbose' => 0 }
+      'options' => $opt
     };
 
     return bless $self, $class;
@@ -47,7 +48,7 @@ $File::Find::dont_use_nlink = 1;
   ## "private" methods ##
 
   # requires: n/a
-  #  returns: success as (binary)
+  #  returns: success as (boolean)
   sub _save_world_writable {
     # skip non-files
     if ( ! -f $File::Find::name ) { return 0; }
@@ -67,11 +68,20 @@ $File::Find::dont_use_nlink = 1;
   ## "public" methods ##
 
   # requires: $dirs (array ref) directories to search
-  #  returns: $world_writable_files (hash ref) found files
+  #  returns: $world_writable_files (hash ref) or undef
   sub find_world_writable_files {
     my ($self, $dirs) = @_;
+    my (@directories) = ();
 
-    find(\&_save_world_writable, @$dirs);
+    # directory array ref not passed or empty
+    if ( ! ($dirs && @$dirs) ) { return undef; }
+
+    # remove non-directory elements
+    @directories = grep { -d $_ } @$dirs;
+    # no good directories left
+    if ( ! @directories ) { return undef; }
+
+    find(\&_save_world_writable, @directories);
 
     return $world_writable_files;
   }
@@ -81,12 +91,21 @@ $File::Find::dont_use_nlink = 1;
   #  returns: $results (hash ref)
   #           $results->{'success'} number of successes
   #           $results->{'fail'} failed files with errors
+  #           or undef
   sub remove_world_write_perms {
     my ($self, $files) = @_;
     my ($file, $perms, $results) = ();
 
-    # file hash ref not passed, use stored file hash ref
-    if ( ! $files ) { $files = $world_writable_files; }
+    # file hash ref not passed or empty, use stored file hash ref
+    if ( ! ($files && scalar keys %$files) ) {
+      # stored hash ref is not empty
+      if ( scalar keys %$world_writable_files ) {
+        $files = $world_writable_files;
+      } else {
+        # there are no files
+        return undef;
+      }
+    }
 
     # prepare hash
     $results = {
@@ -96,31 +115,30 @@ $File::Find::dont_use_nlink = 1;
 
     for $file ( keys %$files ) {
       # skip non-files
-      if ( ! -f $file ) { continue; }
+      if ( ! -f $file ) { next; }
 
       # get file stats again, in case mode has changed
       my $filestats = stat $file;
 
       # only work on files with o+w perms
-      if ( ! ($filestats->mode() & S_IWOTH) ) { continue; }
+      if ( ! ($filestats->mode() & S_IWOTH) ) { next; }
 
       # get full perms, including "special" bit
       $perms = $filestats->mode() & 07777;
 
       # apply o-w perms, fail silently
-      #$results->{'success'} += chmod $perms ^ S_IWOTH, $file
-      #  or $results->{'fail'}->{$file} = $!;
-      printf "chmod %#o, $file\n", $perms ^ S_IWOTH;
-      $results->{'success'}++
+      $results->{'success'} += chmod $perms ^ S_IWOTH, $file
+        or $results->{'fail'}->{$file} = $!;
     }
 
     return $results;
   }
 
   # requires: $msg (string) message to display, not empty
-  #  returns: success as (binary)
+  # optional: $newline (boolean) print a newline
+  #  returns: success as (boolean)
   sub verbose {
-    my ($self, $msg) = @_;
+    my ($self, $msg, $newline) = @_;
 
     # missing message or verbose mode not enabled
     if ( ! ( $msg && $self->{'options'}->{'verbose'} ) ) {
@@ -128,7 +146,7 @@ $File::Find::dont_use_nlink = 1;
     }
 
     # display provided message
-    print "$msg\n";
+    printf '%s%s', $msg, $newline ? "\n" : '';
 
     return 1;
   }
